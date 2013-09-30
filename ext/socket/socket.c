@@ -54,6 +54,9 @@ static int
 cTCP6Socket;
 
 static int
+cUnixSocket;
+
+static int
 cTCPSocket_Error;
 
 void
@@ -67,6 +70,7 @@ sl_static_init_ext_socket()
     cTCPSocket = sl_vm_store_register_slot();
     cTCPSocket_Error = sl_vm_store_register_slot();
     cTCP6Socket = sl_vm_store_register_slot();
+    cUnixSocket = sl_vm_store_register_slot();
 }
 
 typedef struct {
@@ -113,35 +117,6 @@ tcp_socket_error(sl_vm_t* vm, const char* message, const char* strerror)
 {
     sl_error(vm, vm->store[cTCPSocket_Error], "%s%s", message, strerror);
 }
-/* XXX bind */
-    /* sl_expect(vm, hostv, vm->lib.String); */
-
-    /* int port = sl_get_int(sl_expect(vm, portv, vm->lib.Int)); */
-    /* if(port < 1 || port > 65535) { */
-    /*     sl_throw_message2(vm, vm->lib.ArgumentError, "Port number out of range"); */
-    /* } */
-
-/* XXX connect */
-    /* struct addrinfo* ai; */
-    /* int gai_error = getaddrinfo(sl_to_cstr(vm, hostv), NULL, NULL, &ai); */
-    /* if(gai_error != 0) { */
-    /*     tcp_socket_error(vm, "Could not create TCPSocket: ", gai_strerror(gai_error)); */
-    /* } */
-
-    /* if(ai->ai_family != AF_INET && ai->ai_family != AF_INET6) { */
-    /*     freeaddrinfo(ai); */
-    /*     tcp_socket_error(vm, "Could not create TCPSocket: ", "only IPv4 and IPv6 supported"); */
-    /* } */
-    /* if(connect(sock->socket, ai->ai_addr, ai->ai_addrlen) != 0) { */
-    /*     freeaddrinfo(ai); */
-    /*     tcp_socket_error(vm, "Could not create TCPSocket: ", strerror(errno)); */
-    /* } */
-
-/* XXX init6 */
-    /* ((struct sockaddr_in*)ai->ai_addr)->sin_port = htons(port); */
-    /* } else if(ai->ai_family == AF_INET6) { */
-    /*     ((struct sockaddr_in6*)ai->ai_addr)->sin6_port = htons(port); */
-    /* } */
 
 static SLVAL
 sl_tcp_socket_init(sl_vm_t* vm, SLVAL self)
@@ -182,15 +157,17 @@ sl_tcp6_socket_init(sl_vm_t* vm, SLVAL self)
 }
 
 static SLVAL
-sl_tcp_socket_bind(sl_vm_t* vm, SLVAL self, SLVAL hostv, SLVAL portv)
+sl_tcp_socket_bind(sl_vm_t* vm, SLVAL self, SLVAL hostv)
 {
     sl_expect(vm, hostv, vm->lib.String);
-    int port = sl_get_int(sl_expect(vm, portv, vm->lib.Int));
     sl_socket_t* sock = (sl_socket_t*)sl_get_ptr(self);
 
-    if(port < 1 || port > 65535) {
-        sl_throw_message2(vm, vm->lib.ArgumentError, "Port number out of range");
+    struct sockaddr_un ai;
+    char* host = sl_to_cstr(vm, hostv);
+    if (strlen(host) > sizeof(ai.sun_path) - 1) {
+        tcp_socket_error(vm, "Could not create UnixSocket: ", "filename too long");
     }
+
 
     struct addrinfo* ai;
     int gai_error = getaddrinfo(sl_to_cstr(vm, hostv), NULL, &af_inet_hints, &ai);
@@ -455,6 +432,11 @@ sl_init_ext_socket(sl_vm_t* vm)
     sl_define_method(vm, Socket, "accept", 0, sl_socket_accept);
     sl_define_method(vm, Socket, "listen", 1, sl_socket_listen);
 
+    SLVAL UnixSocket = sl_define_class(vm, "UnixSocket", Socket);
+    sl_define_method(vm, UnixSocket, "init", 0, sl_unix_socket_init);
+    sl_define_method(vm, UnixSocket, "bind", 1, sl_unix_socket_bind);
+    sl_define_method(vm, UnixSocket, "connect", 1, sl_unix_socket_connect);
+
     SLVAL TCPSocket = sl_define_class(vm, "TCPSocket", Socket);
     sl_define_method(vm, TCPSocket, "init", 0, sl_tcp_socket_init);
     sl_define_method(vm, TCPSocket, "bind", 2, sl_tcp_socket_bind);
@@ -470,5 +452,6 @@ sl_init_ext_socket(sl_vm_t* vm)
     vm->store[cSocket] = Socket;
     vm->store[cTCPSocket] = TCPSocket;
     vm->store[cTCP6Socket] = TCP6Socket;
+    vm->store[cUnixSocket], UnixSocket;
     vm->store[cTCPSocket_Error] = TCPSocket_Error;
 }
